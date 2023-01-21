@@ -1,64 +1,98 @@
-import { CSSResult, html, LitElement, TemplateResult } from "lit";
-import { customElement } from "lit/decorators.js";
-import { HomeAssistant } from "custom-card-helpers";
+import { html, LitElement, TemplateResult } from "lit";
+import { customElement, property } from "lit/decorators.js";
+import { HomeAssistant, LovelaceCardConfig } from "custom-card-helpers";
 
-import { style } from "./styles";
+import "./phone";
+
+interface CardConfig extends LovelaceCardConfig {
+  camera: string;
+  open_service: string;
+  users: Array<{
+    hass_name: string;
+    sip_uri: string;
+    sip_aor: string;
+    sip_username: string;
+    sip_password: string;
+  }>;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 (window as any).customCards = (window as any).customCards || [];
 (window as any).customCards.push({
   type: "portail-card",
   name: "Portail",
-  preview: false,
   description: "",
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-interface CardConfig {
-  opt: string;
-}
-
 @customElement("portail-card")
 export default class PortailCard extends LitElement {
-  private _hass?: HomeAssistant;
-  private _config?: CardConfig;
-
-  set hass(hass: HomeAssistant) {
-    this._hass = hass;
-  }
+  @property({ attribute: false }) public hass: HomeAssistant;
+  @property({ attribute: false }) private config: CardConfig;
+  @property({ attribute: false, reflect: true }) private in_call: boolean;
 
   setConfig(config: CardConfig) {
-    this._config = config;
+    this.config = config;
   }
 
-  static get styles(): CSSResult {
-    return style;
+  private on_btn_open_clicked() {
+    this.hass.callService("", this.config.open_service);
   }
 
-  private _render(): TemplateResult<1> {
+  render(): TemplateResult<1> {
+    if (!this.hass || !this.config) return html``;
+
+    const camera = this.config.camera;
+    const sip_config = this.config.users.find(
+      (cfg) => cfg.hass_name.toLowerCase() == this.hass.user.name.toLowerCase()
+    );
+
+    const cam_token = this.hass.states[camera].attributes["access_token"];
+    const cam_url = `/api/camera_proxy_stream/${camera}?token=${cam_token}`;
+
+    let css = "overflow: hidden;";
+    if (this.in_call) {
+      css += [
+        "position: absolute;",
+        "top: 40px;",
+        "left: 40px;",
+        "bottom: 40px;",
+        "right: 40px;",
+        "z-index: 10000;",
+      ].join(" ");
+    }
+
+    let phone = null;
+    if (sip_config) {
+      phone = html`<portail-card-phone
+        uri=${sip_config.sip_uri}
+        aor=${sip_config.sip_aor}
+        username=${sip_config.sip_username}
+        password=${sip_config.sip_password}
+        @call-started=${() => (this.in_call = true)}
+        @call-ended=${() => (this.in_call = false)}
+        style="width: 100%; display: flex; justify-content: end;"
+      />`;
+    }
+
     return html`
-      <ha-card elevation="2" style="">
-        <div class="card-header">
-          Title
-          <div class="entities-info-row">
-            cfg: ${JSON.stringify(this._config)}
-          </div>
+      <ha-card style=${css}>
+        <img
+          id="camera"
+          src=${cam_url}
+          style="display: block; max-width: 100%; max-height: calc(100% - 52px); margin: auto;"
+        />
+        <div style="display: flex; padding: 8px;">
+          <mwc-button @click=${() => this.on_btn_open_clicked()} raised>
+            Ouvrir
+          </mwc-button>
+          ${phone}
         </div>
       </ha-card>
     `;
   }
 
-  render(): TemplateResult<1> {
-    if (!this._hass || !this._config) return html``;
-
-    try {
-      return this._render();
-    } catch (error) {
-      return html`<hui-warning>${error.toString()}</hui-warning>`;
-    }
-  }
-
   getCardSize() {
-    return 3;
+    return 1;
   }
 }
